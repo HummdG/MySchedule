@@ -12,6 +12,7 @@ import mysql.connector
 from datetime import datetime, timedelta
 from langchain_core.output_parsers import JsonOutputParser
 from datetime import date
+# from prettyprint import pp
 
 app = FastAPI()
 
@@ -68,43 +69,42 @@ conversation = ConversationChain(llm=llm, memory=memory, verbose=True)
 
 # Prompt template
 prompt_template = PromptTemplate(
-    input_variables=["topic", "duration", "time_constraints", "resources", "format_instructions"],
+    input_variables=["topic", "duration", "time_constraints", "resources"],
     template="""
-    Create a detailed daily learning schedule for {topic} over a duration of {duration} starting from 30 october 2024.
-    Consider the following time constraints: {time_constraints}.
-    Include the following types of resources: {resources}.
-    
-    The schedule should be structured as a JSON object as shown below:
+    Create a detailed daily learning schedule for the topic {topic} over a duration of {duration} starting from October 30, 2024. Consider the following time constraints: {time_constraints}. Include the following types of resources: {resources}.
+
+    The schedule should be structured as a JSON object, formatted as shown below:
     {{
-            "week_number": 1,
-            "start_date": "2024-11-15",
-            "end_date": "2024-11-21",
-            "activities": [
+    "week_number": 1,
+    "start_date": "2024-11-15",
+    "end_date": "2024-11-21",
+    "activities": [
+        {{
+            "day": "Monday",
+            "date": "2024-11-15",
+            "topics": ["Introduction to Python", "Environment Setup"],
+            "estimated_time": 2.0,
+            "resources": [
                 {{
-                    "day": "Monday",
-                    "date": "2024-11-15",
-                    "topics": ["Introduction to Python", "Environment Setup"],
-                    "estimated_time": 2.0,
-                    "resources": [
-                        {{
-                            "type": "video",
-                            "title": "Intro to Python",
-                            "link": "https://example.com/intro-to-python"
-                        }},
-                        {{
-                            "type": "article",
-                            "title": "Setting Up Python",
-                            "link": "https://example.com/setting-up-python"
-                        }}
-                    ]
+                    "type": "video",
+                    "title": "Intro to Python",
+                    "link": "https://example.com/intro-to-python"
+                }},
+                {{
+                    "type": "article",
+                    "title": "Setting Up Python",
+                    "link": "https://example.com/setting-up-python"
                 }}
             ]
         }}
-    
-    Give me for each week, then I am going to say more and then you give another week till you finish so you don't run out of
-    your max output token limit.
-    EACH WEEK SHOULD ONLY END ON SUNDAY SO AFTER SUNDAY A NEW WEEK SHOULD COMMENCE.
-    ONLY GIVE JSON OUTPUT
+    ]
+    }}
+
+    Instructions:
+
+    1. Ensure that the schedule includes activities for each day, including weekends (Saturday and Sunday), unless specified otherwise in the time constraints.
+    2. If the starting date is not a Monday, the first week can include days from the start date until the following Sunday. Adjust the schedule based on the provided time constraints.
+    3. Please provide the output strictly in JSON format without any additional explanations.
     """
 )
 
@@ -141,10 +141,26 @@ async def create_schedule(
     )
 
     # Run the conversation with memory
+    x = []
     response = conversation.predict(input=prompt)
+    x.append(json.loads(response))
 
-    response2 = conversation.predict("more")
 
+    response2 = conversation.predict(input = f"""
+                                     Have you given all weeks for the duration specified {duration}, if not give the 
+                                     rest only JSON. If you have just output "Done"
+                                     """)
+    if (response2 != '"Done"'):
+        x.append(response2)
+
+    while (response2 != '"Done"'):
+        response2 = conversation.predict(input = f"""
+                                     Have you given all weeks for the duration specified {duration}, if not give the 
+                                     rest only JSON. If you have just output "Done"
+                                     """)
+        if (response2 != '"Done"'):
+            x.append(response2)
+    print(x)
     try:
         schedule_json = json.loads(response)
     except json.JSONDecodeError:
