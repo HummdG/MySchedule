@@ -1,0 +1,7 @@
+{"properties": {"foo": {"title": "Foo", "description": "a list of strings", "type": "array", "items": {"type": "string"}}}, "required": ["foo"]}
+
+
+
+
+
+
