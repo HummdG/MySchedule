@@ -12,7 +12,9 @@ import mysql.connector
 from datetime import datetime, timedelta
 from langchain_core.output_parsers import JsonOutputParser
 from datetime import date
-# from prettyprint import pp
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import START, MessagesState, StateGraph
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 app = FastAPI()
 
@@ -57,55 +59,92 @@ class CourseSchedule(BaseModel):
     weeks: List[Week]
 
 # Create the parser
-parser = JsonOutputParser(pydantic_object=CourseSchedule)
+# parser = JsonOutputParser(pydantic_object=CourseSchedule)
 
 # Generate format instructions
-format_instructions = parser.get_format_instructions()
+# format_instructions = parser.get_format_instructions()
 
 # Initialize OpenAI with memory
-llm = ChatOpenAI(model="gpt-4")
-memory = ConversationBufferMemory()
-conversation = ConversationChain(llm=llm, memory=memory, verbose=True)
+llm = ChatOpenAI(model="gpt-4-turbo")
+# memory = ConversationBufferMemory()
+# conversation = ConversationChain(llm=llm, memory=memory, verbose=True)
 
 # Prompt template
 prompt_template = PromptTemplate(
     input_variables=["topic", "duration", "time_constraints", "resources"],
-    template="""
-    Create a detailed daily learning schedule for the topic {topic} over a duration of {duration} starting from October 30, 2024. Consider the following time constraints: {time_constraints}. Include the following types of resources: {resources}.
+    template = """
+Generate a Learning Schedule
 
-    The schedule should be structured as a JSON object, formatted as shown below:
+- Topic: "{topic}"
+- Total Duration: "{duration}"
+- Start Date: "October 30, 2024"
+- Time Constraints: {time_constraints} 
+- Required Resource Types: {resources}
+
+Schedule Guidelines:
+1. Output the schedule as a JSON array of objects.
+2. Include study activities for each day (Monday to Sunday) unless specified in time constraints.
+3. For each activity, specify:
+   - Day of the week and Date
+   - Topics covered
+   - Estimated study time (in hours)
+   - Resources with type, title, and URL or chapter if applicable. Give real URLs, book names, video titles, or articles. Do not make up URLs or resources.
+4. If the start date is not a Monday, include only the days from the start date until Sunday of that week.
+5. Provide URLs for videos and specify book chapters or article links with valid and authentic sources.
+6. Do not include made-up URLs or content. Use genuine resources such as official books, courses, or reputable educational platforms like YouTube, Coursera, edX, etc.
+7. For videos prefer suggesting youtube videos and if you can pplease give the channel name as well in the title.
+8. You can suggest multiple resources for each activity if required.
+
+An example of the expected JSON Format is as follows:
     {{
-    "week_number": 1,
-    "start_date": "2024-11-15",
-    "end_date": "2024-11-21",
-    "activities": [
-        {{
-            "day": "Monday",
-            "date": "2024-11-15",
-            "topics": ["Introduction to Python", "Environment Setup"],
-            "estimated_time": 2.0,
-            "resources": [
-                {{
-                    "type": "video",
-                    "title": "Intro to Python",
-                    "link": "https://example.com/intro-to-python"
-                }},
-                {{
-                    "type": "article",
-                    "title": "Setting Up Python",
-                    "link": "https://example.com/setting-up-python"
-                }}
-            ]
-        }}
-    ]
+        "week_number": "",
+        "start_date": "",
+        "end_date": "",
+        "activities": [
+            {{
+                "day": "",
+                "date": "",
+                "topics": [""],
+                "estimated_time": 0.0,
+                "resources": [
+                    {{
+                        "type": "",
+                        "title": "",
+                        "link": ""
+                    }}
+                ]
+            }}
+        ]
+    }},
+    {{
+        "week_number": "",
+        "start_date": "",
+        "end_date": "",
+        "activities": [
+            {{
+                "day": "",
+                "date": "",
+                "topics": [""],
+                "estimated_time": 0.0,
+                "resources": [
+                    {{
+                        "type": "",
+                        "title": "",
+                        "chapter": "",
+                        "link": ""
+                    }}
+                ]
+            }}
+        ]
     }}
 
-    Instructions:
+Instructions:
+- Provide the first 2 weeks of the schedule for now.
+- Refer to JSON format as shown above.
+- ONLY OUTPUT THE JSON ARRAY AND NOT ANYTHING ELSE. DONT FORMAT THE OUTPUT FOR BETTER VISUAL READABILITY. JUST GIVE
+THE JSON.
+"""
 
-    1. Ensure that the schedule includes activities for each day, including weekends (Saturday and Sunday), unless specified otherwise in the time constraints.
-    2. If the starting date is not a Monday, the first week can include days from the start date until the following Sunday. Adjust the schedule based on the provided time constraints.
-    3. Please provide the output strictly in JSON format without any additional explanations.
-    """
 )
 
 @app.get("/")
@@ -131,38 +170,57 @@ async def create_schedule(
         resources.append("online courses")
     resources_str = ", ".join(resources)
 
+    # Define a new graph
+    workflow = StateGraph(state_schema=MessagesState)
+
+
+    # Define the function that calls the model
+    def call_model(state: MessagesState):
+        response = llm.invoke(state["messages"])
+        return {"messages": response}
+
+
+    # Define the (single) node in the graph
+    workflow.add_edge(START, "model")
+    workflow.add_node("model", call_model)
+
+    # Add memory
+    memory = MemorySaver()
+    conversation = workflow.compile(checkpointer=memory)
+
     # Prepare the prompt
     prompt = prompt_template.format(
         topic=learning_topic,
         duration=duration,
         time_constraints=time_constraints,
         resources=resources_str,
-        format_instructions=format_instructions
+        # format_instructions=format_instructions
     )
+    query = prompt
+
+    input_messages = [HumanMessage(query)]
+    input_messages.append(HumanMessage("Format the output to just have JSON so remove everything outside of the JSON array if needed."))
+    config = {"configurable": {"thread_id": "1"}}
+    output = conversation.invoke({"messages": input_messages}, config=config)
+    response = output["messages"][-1].content
+    output["messages"][-1].pretty_print()  # output contains all messages in state
 
     # Run the conversation with memory
     x = []
-    response = conversation.predict(input=prompt)
+    # response = conversation(prompt)
     x.append(json.loads(response))
 
-
-    response2 = conversation.predict(input = f"""
-                                     Have you given all weeks for the duration specified {duration}, if not give the 
-                                     rest only JSON. If you have just output "Done"
+    while (response != '"Done"'):
+        response = conversation.predict(input = f"""
+                                     Have you given all weeks for the specified duration of "{duration}", if not give the 
+                                     next 2 weeks (or 1 depending on if total weeks in duration were odd or even) in JSON. If you have given all weeks just output "Done"
                                      """)
-    if (response2 != '"Done"'):
-        x.append(response2)
+        if (response != '"Done"'):
+            x.append(response)
 
-    while (response2 != '"Done"'):
-        response2 = conversation.predict(input = f"""
-                                     Have you given all weeks for the duration specified {duration}, if not give the 
-                                     rest only JSON. If you have just output "Done"
-                                     """)
-        if (response2 != '"Done"'):
-            x.append(response2)
     print(x)
     try:
-        schedule_json = json.loads(response)
+        schedule_json = json.loads(x[0])
     except json.JSONDecodeError:
         return {"error": "Failed to parse JSON response"}
 
