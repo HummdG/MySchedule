@@ -65,7 +65,7 @@ class CourseSchedule(BaseModel):
 # format_instructions = parser.get_format_instructions()
 
 # Initialize OpenAI with memory
-llm = ChatOpenAI(model="gpt-4-turbo")
+llm = ChatOpenAI(model="gpt-4o")
 # memory = ConversationBufferMemory()
 # conversation = ConversationChain(llm=llm, memory=memory, verbose=True)
 
@@ -79,7 +79,6 @@ Generate a Learning Schedule
 - Total Duration: "{duration}"
 - Start Date: "October 30, 2024"
 - Time Constraints: {time_constraints} 
-- Required Resource Types: {resources}
 
 Schedule Guidelines:
 1. Output the schedule as a JSON array of objects.
@@ -88,12 +87,11 @@ Schedule Guidelines:
    - Day of the week and Date
    - Topics covered
    - Estimated study time (in hours)
-   - Resources with type, title, and URL or chapter if applicable. Give real URLs, book names, video titles, or articles. Do not make up URLs or resources.
+   - Resources with type, 
 4. If the start date is not a Monday, include only the days from the start date until Sunday of that week.
-5. Provide URLs for videos and specify book chapters or article links with valid and authentic sources.
-6. Do not include made-up URLs or content. Use genuine resources such as official books, courses, or reputable educational platforms like YouTube, Coursera, edX, etc.
-7. For videos prefer suggesting youtube videos and if you can pplease give the channel name as well in the title.
-8. You can suggest multiple resources for each activity if required.
+5. Use genuine latest and new resources and dont make anything up.
+6. For videos only mention youtube videos with the video name and channel name in the title.
+7. You can suggest multiple resources for each activity if required.
 
 An example of the expected JSON Format is as follows:
     {{
@@ -110,7 +108,8 @@ An example of the expected JSON Format is as follows:
                     {{
                         "type": "",
                         "title": "",
-                        "link": ""
+                        "channel": ""
+                        "URL": ""
                     }}
                 ]
             }}
@@ -130,8 +129,9 @@ An example of the expected JSON Format is as follows:
                     {{
                         "type": "",
                         "title": "",
+                        "channel": "",
+                        "URL": "",
                         "chapter": "",
-                        "link": ""
                     }}
                 ]
             }}
@@ -210,13 +210,14 @@ async def create_schedule(
     # response = conversation(prompt)
     x.append(json.loads(response))
 
-    while (response != '"Done"'):
-        response = conversation.predict(input = f"""
-                                     Have you given all weeks for the specified duration of "{duration}", if not give the 
-                                     next 2 weeks (or 1 depending on if total weeks in duration were odd or even) in JSON. If you have given all weeks just output "Done"
-                                     """)
-        if (response != '"Done"'):
-            x.append(response)
+    # while (response != '"Done"'):
+    
+    #     response = conversation.predict(input = f"""
+    #                                  Have you given all weeks for the specified duration of "{duration}", if not give the 
+    #                                  next 2 weeks (or 1 depending on if total weeks in duration were odd or even) in JSON. If you have given all weeks just output "Done"
+    #                                  """)
+    #     if (response != '"Done"'):
+    #         x.append(response)
 
     print(x)
     try:
